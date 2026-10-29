@@ -269,6 +269,9 @@ KEYCLOAK_ROLE_MAP = env_with_semicolon_to_list(
     ],
 )
 KEYCLOAK_DEFAULT_ROLE = os.getenv("KEYCLOAK_DEFAULT_ROLE", "user")
+# "always" rewrites the role from Keycloak at every login, "first-login" sets
+# it only when the person is created and leaves later changes made in Kitsu.
+KEYCLOAK_SYNC_ROLE = os.getenv("KEYCLOAK_SYNC_ROLE", "always")
 
 LOG_FILE_NOT_FOUND = envtobool("LOG_FILE_NOT_FOUND", False)
 

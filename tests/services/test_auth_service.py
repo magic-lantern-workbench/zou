@@ -802,6 +802,24 @@ class KeycloakAuthTestCase(AuthTestCase):
             len(Person.query.filter_by(email="new.user@studio.test").all()), 1
         )
 
+    def test_first_login_sync_keeps_the_role_set_in_kitsu(self):
+        with mock.patch(
+            "zou.app.services.auth_service.config.KEYCLOAK_ROLE_MAP",
+            ["mlw-manager:manager", "mlw-admin:admin"],
+        ), mock.patch(
+            "zou.app.services.auth_service.config.KEYCLOAK_SYNC_ROLE",
+            "first-login",
+        ):
+            self.login()
+            self.assertEqual(self.user["role"], "manager")
+            persons_service.update_person(self.user["id"], {"role": "user"})
+            persons_service.clear_person_cache()
+            self.claims["realm_access"] = {"roles": ["mlw-admin"]}
+            self.claims["given_name"] = "Renamed"
+            self.login()
+        self.assertEqual(self.user["role"], "user")
+        self.assertEqual(self.user["first_name"], "Renamed")
+
     def test_wrong_keycloak_password_is_refused(self):
         with mock.patch(
             "zou.app.services.auth_service.keycloak.authenticate",

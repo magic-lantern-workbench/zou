@@ -248,6 +248,8 @@ def keycloak_sync_person(email, password):
             random_password,
             **{"first_name": "", "last_name": "", **person_info},
         )
+    if config.KEYCLOAK_SYNC_ROLE == "first-login":
+        person_info.pop("role")
     if any(person.get(key) != value for key, value in person_info.items()):
         persons_service.update_person(person["id"], person_info)
         persons_service.clear_person_cache()
