@@ -745,3 +745,101 @@ class TokenTestCase(AuthTestCase):
         hashes = auth_service.hash_recovery_codes(codes)
         self.assertNotIn(codes[0].encode(), hashes)
         self.assertTrue(auth.check_password(hashes[0], codes[0]))
+
+
+class KeycloakAuthTestCase(AuthTestCase):
+    """
+    With the Keycloak strategy, Keycloak proves the password and its roles
+    decide the role: the person is created or updated on each login.
+    """
+
+    def setUp(self):
+        super().setUp()
+        app.config["AUTH_STRATEGY"] = "auth_remote_keycloak"
+        self.claims = {
+            "email": "new.user@studio.test",
+            "given_name": "New",
+            "family_name": "User",
+            "realm_access": {"roles": ["mlw-manager"]},
+        }
+
+    def login(self, email="new.user@studio.test", password="kc-password"):
+        with mock.patch(
+            "zou.app.services.auth_service.keycloak.authenticate",
+            return_value=self.claims,
+        ) as authenticate:
+            self.user = auth_service.check_auth(app, email, password)
+        return authenticate
+
+    def test_first_login_creates_the_person_with_the_mapped_role(self):
+        with mock.patch(
+            "zou.app.services.auth_service.config.KEYCLOAK_ROLE_MAP",
+            ["mlw-manager:manager"],
+        ):
+            self.login()
+        self.assertEqual(self.user["email"], "new.user@studio.test")
+        self.assertEqual(self.user["first_name"], "New")
+        self.assertEqual(self.user["role"], "manager")
+
+    def test_login_with_the_keycloak_username(self):
+        """
+        Keycloak accepts its username as well as the email: the person is
+        the one of the email in the token, not of what was typed.
+        """
+        self.login(email="newuser")
+        self.assertEqual(self.user["email"], "new.user@studio.test")
+
+    def test_next_login_updates_the_role(self):
+        with mock.patch(
+            "zou.app.services.auth_service.config.KEYCLOAK_ROLE_MAP",
+            ["mlw-manager:manager", "mlw-admin:admin"],
+        ):
+            self.login()
+            self.claims["realm_access"] = {"roles": ["mlw-admin"]}
+            self.login()
+        self.assertEqual(self.user["role"], "admin")
+        self.assertEqual(
+            len(Person.query.filter_by(email="new.user@studio.test").all()), 1
+        )
+
+    def test_wrong_keycloak_password_is_refused(self):
+        with mock.patch(
+            "zou.app.services.auth_service.keycloak.authenticate",
+            side_effect=WrongPasswordException(),
+        ):
+            self.assertRaises(
+                WrongPasswordException,
+                auth_service.check_auth,
+                app,
+                "new.user@studio.test",
+                "wrong",
+            )
+        self.assertIsNone(
+            Person.query.filter_by(email="new.user@studio.test").first()
+        )
+
+    def test_protected_accounts_keep_the_local_password(self):
+        with mock.patch(
+            "zou.app.services.auth_service.config.PROTECTED_ACCOUNTS",
+            [self.email],
+        ), mock.patch(
+            "zou.app.services.auth_service.keycloak.authenticate"
+        ) as authenticate:
+            self.assertEqual(self.authenticate()["first_name"], "John")
+        authenticate.assert_not_called()
+
+    def test_an_inactive_person_stays_refused(self):
+        self.login()
+        persons_service.update_person(self.user["id"], {"active": False})
+        persons_service.clear_person_cache()
+        with mock.patch(
+            "zou.app.services.auth_service.keycloak.authenticate",
+            return_value=self.claims,
+        ):
+            self.assertRaises(
+                InactiveUserException,
+                auth_service.check_auth,
+                app,
+                "new.user@studio.test",
+                "kc-password",
+            )

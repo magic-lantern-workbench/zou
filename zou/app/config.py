@@ -249,6 +249,27 @@ OIDC_FAMILY_NAME_CLAIM = os.getenv("OIDC_FAMILY_NAME_CLAIM", "family_name")
 OIDC_REQUIRE_EMAIL_VERIFIED = envtobool("OIDC_REQUIRE_EMAIL_VERIFIED", True)
 OIDC_SKIP_2FA = envtobool("OIDC_SKIP_2FA", False)
 
+# Used with AUTH_STRATEGY=auth_remote_keycloak: the login form of Kitsu stays
+# as it is, Zou checks the credentials against Keycloak (password grant) and
+# gives the person the role mapped from their Keycloak roles.
+KEYCLOAK_SERVER_URL = os.getenv("KEYCLOAK_SERVER_URL", "")
+KEYCLOAK_REALM = os.getenv("KEYCLOAK_REALM", "")
+KEYCLOAK_CLIENT_ID = os.getenv("KEYCLOAK_CLIENT_ID", "")
+KEYCLOAK_CLIENT_SECRET = os.getenv("KEYCLOAK_CLIENT_SECRET", "")
+# "keycloak-role:zou-role" pairs separated by semicolons.
+KEYCLOAK_ROLE_MAP = env_with_semicolon_to_list(
+    "KEYCLOAK_ROLE_MAP",
+    [
+        "admin:admin",
+        "manager:manager",
+        "supervisor:supervisor",
+        "user:user",
+        "vendor:vendor",
+        "client:client",
+    ],
+)
+KEYCLOAK_DEFAULT_ROLE = os.getenv("KEYCLOAK_DEFAULT_ROLE", "user")
+
 LOG_FILE_NOT_FOUND = envtobool("LOG_FILE_NOT_FOUND", False)
 
 SENTRY_ENABLED = envtobool("SENTRY_ENABLED", False)

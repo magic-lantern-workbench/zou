@@ -50,7 +50,7 @@ from zou.app.services import (
     templates_service,
 )
 from zou.app.stores import auth_tokens_store
-from zou.app.utils import auth, date_helpers, emails
+from zou.app.utils import auth, date_helpers, emails, keycloak
 from zou.app.utils.email_i18n import get_email_translation
 
 MAX_LOGIN_FAILED_ATTEMPS = 5
@@ -117,6 +117,14 @@ def check_auth(
     """
     if not email:
         raise WrongUserException()
+    uses_keycloak = (
+        app.config["AUTH_STRATEGY"] == "auth_remote_keycloak"
+        and email not in config.PROTECTED_ACCOUNTS
+    )
+    if uses_keycloak:
+        # Keycloak also accepts its username: from here on, the person is
+        # the one of the email it returned.
+        email = keycloak_sync_person(email, password)["email"]
     try:
         person = persons_service.get_person_by_email_desktop_login(email)
     except PersonNotFoundException:
@@ -133,6 +141,11 @@ def check_auth(
             no_password_auth_strategy(person, password, app)
         elif strategy == "auth_remote_ldap":
             ldap_auth_strategy(person, password, app)
+        elif strategy == "auth_remote_keycloak":
+            # Keycloak proved the password above. The protected accounts
+            # skip it and keep their local password.
+            if not uses_keycloak:
+                local_auth_strategy(person, password, app)
         else:
             raise NoAuthStrategyConfigured()
     except WrongPasswordException:
@@ -211,6 +224,33 @@ def local_auth_strategy(person, password, app=None):
 
     if not password_matches:
         raise WrongPasswordException()
+    return person
+
+
+def keycloak_sync_person(email, password):
+    """
+    Check the credentials against Keycloak, then create the person on the
+    first login and keep their name and role in step with Keycloak on the
+    following ones. Return the person.
+    """
+    claims = keycloak.authenticate(email, password)
+    email = claims.get("email") or email
+    person_info = {
+        **keycloak.map_claims(claims),
+        "role": keycloak.get_role(claims),
+    }
+    try:
+        person = persons_service.get_person_by_email(email)
+    except PersonNotFoundException:
+        random_password = auth.encrypt_password(secrets.token_urlsafe(48))
+        return persons_service.create_person(
+            email,
+            random_password,
+            **{"first_name": "", "last_name": "", **person_info},
+        )
+    if any(person.get(key) != value for key, value in person_info.items()):
+        persons_service.update_person(person["id"], person_info)
+        persons_service.clear_person_cache()
     return person
 
 
